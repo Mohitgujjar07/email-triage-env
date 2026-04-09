@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Email Triage — OpenEnv</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; }
+  header { background: #fff; border-bottom: 1px solid #e5e5e5; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header .badge { background: #e8f5e9; color: #2e7d32; font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 500; }
+  .layout { display: grid; grid-template-columns: 1fr 340px; gap: 16px; padding: 20px 24px; max-width: 1100px; margin: 0 auto; }
+  .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 20px; }
+  .card h2 { font-size: 13px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 14px; }
+  .email-box { background: #fafafa; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .email-meta { font-size: 12px; color: #888; margin-bottom: 8px; }
+  .email-subject { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+  .email-body { font-size: 14px; color: #444; line-height: 1.6; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+  button { padding: 10px 14px; border-radius: 7px; font-size: 14px; font-weight: 500; cursor: pointer; border: 1.5px solid; transition: all 0.15s; }
+  .btn-reply { background: #e3f2fd; color: #1565c0; border-color: #90caf9; }
+  .btn-archive { background: #f3e5f5; color: #6a1b9a; border-color: #ce93d8; }
+  .btn-escalate { background: #fce4ec; color: #b71c1c; border-color: #f48fb1; }
+  .btn-snooze { background: #fff3e0; color: #e65100; border-color: #ffcc80; }
+  button:hover { opacity: 0.8; transform: translateY(-1px); }
+  button:active { transform: scale(0.97); }
+  .btn-reset { background: #1a1a1a; color: #fff; border-color: #1a1a1a; width: 100%; margin-top: 12px; }
+  .scoreboard { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .stat { background: #fafafa; border: 1px solid #e5e5e5; border-radius: 7px; padding: 12px; }
+  .stat-label { font-size: 11px; color: #888; margin-bottom: 4px; }
+  .stat-value { font-size: 22px; font-weight: 600; }
+  .log { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .log-item { font-size: 12px; padding: 10px 12px; border-radius: 7px; line-height: 1.5; }
+  .log-correct { background: #e8f5e9; border: 1px solid #a5d6a7; color: #1b5e20; }
+  .log-wrong { background: #fce4ec; border: 1px solid #f48fb1; color: #880e4f; }
+  .log-info { background: #e3f2fd; border: 1px solid #90caf9; color: #0d47a1; }
+  .done-banner { background: #1a1a1a; color: #fff; border-radius: 8px; padding: 16px; text-align: center; margin-top: 12px; display: none; }
+  .done-banner h3 { font-size: 18px; margin-bottom: 4px; }
+  .done-banner p { font-size: 13px; color: #aaa; }
+  .progress { height: 4px; background: #e5e5e5; border-radius: 2px; margin-bottom: 16px; }
+  .progress-fill { height: 100%; background: #1a1a1a; border-radius: 2px; transition: width 0.3s; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Email Triage</h1>
+  <span class="badge" id="status">disconnected</span>
+</header>
+
+<div class="layout">
+  <div>
+    <div class="card">
+      <h2>Current email</h2>
+      <div class="progress"><div class="progress-fill" id="progress" style="width:0%"></div></div>
+      <div class="email-box" id="email-box">
+        <div class="email-meta">Press "New Episode" to start</div>
+        <div class="email-subject">—</div>
+        <div class="email-body">Your agent will triage emails one by one. Choose the correct action for each.</div>
+      </div>
+      <div class="actions">
+        <button class="btn-reply" onclick="sendAction('reply')">↩ Reply</button>
+        <button class="btn-archive" onclick="sendAction('archive')">📦 Archive</button>
+        <button class="btn-escalate" onclick="sendAction('escalate')">🚨 Escalate</button>
+        <button class="btn-snooze" onclick="sendAction('snooze')">⏰ Snooze</button>
+      </div>
+      <div class="done-banner" id="done-banner">
+        <h3 id="done-title">Episode complete!</h3>
+        <p id="done-sub"></p>
+      </div>
+      <button class="btn-reset" onclick="resetEpisode()">▶ New Episode</button>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:16px;">
+    <div class="card">
+      <h2>Score</h2>
+      <div class="scoreboard">
+        <div class="stat"><div class="stat-label">Score</div><div class="stat-value" id="score">—</div></div>
+        <div class="stat"><div class="stat-label">Step</div><div class="stat-value" id="step">—</div></div>
+      </div>
+    </div>
+    <div class="card" style="flex:1;">
+      <h2>Action log</h2>
+      <div class="log" id="log"><div class="log-item log-info">Waiting for episode to start...</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let ws;
+  let currentEmail = null;
+  let episodeActive = false;
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws.onopen = () => setStatus('connected', '#2e7d32', '#e8f5e9');
+    ws.onclose = () => { setStatus('disconnected', '#b71c1c', '#fce4ec'); setTimeout(connect, 2000); };
+    ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+  }
+
+  function setStatus(text, color, bg) {
+    const el = document.getElementById('status');
+    el.textContent = text;
+    el.style.color = color;
+    el.style.background = bg;
+  }
+
+  function handleMessage(data) {
+    if (data.state) updateScore(data.state);
+    if (data.observation && !data.done) showEmail(data.observation);
+    if (data.reward !== undefined) logResult(data);
+    if (data.done) showDone(data.state);
+  }
+
+  function showEmail(obs) {
+    currentEmail = obs;
+    document.getElementById('email-box').innerHTML = `
+      <div class="email-meta">From: <strong>${obs.sender}</strong></div>
+      <div class="email-subject">${obs.subject}</div>
+      <div class="email-body">${obs.body}</div>
+      ${obs.feedback ? `<div style="margin-top:10px;font-size:12px;color:#555;border-top:1px solid #e5e5e5;padding-top:8px;">💡 ${obs.feedback}</div>` : ''}
+    `;
+    document.getElementById('done-banner').style.display = 'none';
+  }
+
+  function updateScore(state) {
+    document.getElementById('score').textContent = state.score !== undefined ? state.score.toFixed(1) : '—';
+    document.getElementById('step').textContent = state.total_emails ? `${state.step_count}/${state.total_emails}` : '—';
+    if (state.total_emails) {
+      document.getElementById('progress').style.width = `${(state.step_count / state.total_emails) * 100}%`;
+    }
+  }
+
+  function logResult(data) {
+    const obs = data.observation;
+    const correct = obs.correct_action;
+    const chosen = currentEmail ? '...' : '?';
+    const isCorrect = data.reward > 0;
+    const log = document.getElementById('log');
+    const item = document.createElement('div');
+    item.className = `log-item ${isCorrect ? 'log-correct' : 'log-wrong'}`;
+    item.innerHTML = `<strong>${isCorrect ? '✓' : '✗'} ${obs.subject}</strong><br>Reward: ${data.reward > 0 ? '+1.0' : '-0.5'} · Correct: <strong>${correct}</strong>`;
+    log.prepend(item);
+  }
+
+  function showDone(state) {
+    episodeActive = false;
+    const banner = document.getElementById('done-banner');
+    banner.style.display = 'block';
+    const pct = state.total_emails ? Math.round((state.score / state.total_emails) * 100) : 0;
+    document.getElementById('done-title').textContent = `Episode complete! Score: ${state.score.toFixed(1)}`;
+    document.getElementById('done-sub').textContent = `${pct}% accuracy across ${state.total_emails} emails`;
+    document.getElementById('progress').style.width = '100%';
+  }
+
+  function resetEpisode() {
+    episodeActive = true;
+    document.getElementById('log').innerHTML = '';
+    document.getElementById('done-banner').style.display = 'none';
+    ws.send(JSON.stringify({ method: 'reset' }));
+  }
+
+  function sendAction(action) {
+    if (!episodeActive || !ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ method: 'step', action: { action } }));
+  }
+
+  connect();
+</script>
+</body>
+</html>

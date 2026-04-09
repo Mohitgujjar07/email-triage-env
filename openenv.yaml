@@ -1,0 +1,33 @@
+name: email-triage-env
+version: "1.0.0"
+description: >
+  An OpenEnv reinforcement learning environment where an agent learns to
+  triage emails — deciding whether to reply, archive, escalate, or snooze.
+  Reward is +1 for correct classification, -0.5 for wrong.
+
+author: your-hf-username
+license: MIT
+
+action_space:
+  type: discrete
+  choices: [reply, archive, escalate, snooze]
+
+observation_space:
+  fields:
+    - email_id: string
+    - subject: string
+    - body: string
+    - sender: string
+
+reward:
+  correct_action: +1.0
+  wrong_action: -0.5
+
+episode_length: 5
+
+tags:
+  - nlp
+  - classification
+  - email
+  - triage
+  - real-world
